@@ -63,13 +63,30 @@ docker run --rm --entrypoint node \
   plane-live-local:v1.4.2-pages-api-v1 --test /tmp/live-coordination.test.mjs
 ```
 
-The backend is derived from the exact deployed official v1.4.2 digest, then overlaid with the version-matched fork's Python sources. Runtime dependencies stay unchanged. Use the resulting image for **api, worker, beat-worker, and migrator**, with `pull_policy: never`. Use `plane-live-local:v1.4.2-pages-api-v1` for **live** with `pull_policy: never`. Keep every existing volume, credential, environment setting, Compose project name, and frontend/proxy configuration unchanged. Back up the database before deployment. Redeploy through Dokploy.
+The backend is derived from the exact deployed official v1.4.2 digest, then overlaid with the version-matched fork's Python sources. Runtime dependencies stay unchanged. The local build commands above remain useful for development and emergency rollback. Production pulls the GHCR images described below. Keep every existing volume, credential, environment setting, Compose project name, and frontend/proxy configuration unchanged. Back up the database before deployment. Redeploy through Dokploy.
 
-To roll back, restore `makeplane/plane-backend:v1.4.2` for those four services and `makeplane/plane-live:v1.4.2` for live, remove their `pull_policy: never`, then redeploy. There are no schema changes. Pages created by this API are normal Plane pages and remain usable through the UI after rollback.
+To roll back while retaining Pages API support, set `PLANE_IMAGE_TAG` to an earlier published `sha-<full commit SHA>` and redeploy. To remove the API extension, restore `makeplane/plane-backend:v1.4.2` for api/worker/beat-worker/migrator and `makeplane/plane-live:v1.4.2` for live, then redeploy. There are no schema changes. Pages created by this API are normal Plane pages and remain usable through the UI after rollback.
+
+## GHCR publishing and Dokploy deployment
+
+The `Fork Pages API` GitHub Actions workflow tests each push, then publishes the backend, Live, and custom frontend on pushes to `selfhost-v1.4.2`. Pull requests only run tests. Manual workflow dispatch is also supported. Publishing uses the short-lived workflow `GITHUB_TOKEN` with `packages:write`; no personal token is committed or required for publishing.
+
+Images:
+- `ghcr.io/rossbates/plane-backend`
+- `ghcr.io/rossbates/plane-live`
+- `ghcr.io/rossbates/plane-frontend`
+
+Each image receives `sha-<full commit SHA>` and the rolling `selfhost-v1.4.2` tag, plus source/revision labels. All three must come from the same completed successful workflow run. The runtime targets exclude pytest/lint dependencies.
+
+New GHCR packages normally start private. For anonymous Dokploy pulls, set each package's visibility to **Public** in its GitHub package settings once. Alternatively, keep packages private and configure a GHCR registry in Dokploy using a securely stored token with `read:packages`; do not put it in Compose, Git, or chat.
+
+In Dokploy's Environment settings set `PLANE_IMAGE_TAG=sha-<full commit SHA>`, then use the Compose in `compose.example.yml` and redeploy. It uses `pull_policy: always`; api/worker/beat-worker/migrator share the backend image, live uses its paired image, and web uses the custom frontend image. No local Docker builds are required on the deployment host. Pinning one SHA avoids mixed backend/Live releases and makes rollback explicit. If unset, Compose falls back to the rolling branch tag for development.
+
+Publishing is automatic; production deployment is intentionally separate. After pushing code, wait for all publish jobs, select that commit's tag in Dokploy, and redeploy. GitHub Actions does not receive Dokploy credentials or automatically change production.
 
 ## Existing Compose and frontend
 
-`compose.example.yml` is the installed single-user stack, using environment-variable references only (no live credentials). `frontend/` contains the reproducible existing custom frontend image: Community badge, GitHub star link, and Billing and Plans sidebar item are hidden. Build it with:
+`compose.example.yml` is the single-user stack using GHCR and environment-variable references only (no live credentials). `frontend/` contains the reproducible existing custom frontend image: Community badge, GitHub star link, and Billing and Plans sidebar item are hidden. Build it with:
 
 ```sh
 docker build -t plane-frontend-local:v1.4.2-clean-ui-v4 deployments/pages-api/frontend

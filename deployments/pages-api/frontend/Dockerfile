@@ -1,5 +1,5 @@
 # Upstream Plane CE v1.4.2 frontend pinned to the installed digest.
-FROM makeplane/plane-frontend@sha256:22fd2434fb8d6658439f669ab72f999ce0773abe587663da21a77d70bd63ff61
+FROM makeplane/plane-frontend@sha256:22fd2434fb8d6658439f669ab72f999ce0773abe587663da21a77d70bd63ff61 AS runtime
 # Hide the Community badge, GitHub star link, and Billing and Plans menu item.
 COPY layout-C0Zt7niA.js /usr/share/nginx/html/assets/layout-C0Zt7niA.js
 COPY layout-C1wtx7eA.js /usr/share/nginx/html/assets/layout-C1wtx7eA.js

@@ -36,8 +36,8 @@ x-app-env: &app-env
 services:
   web:
     <<: *common
-    image: plane-frontend-local:v1.4.2-clean-ui-v4
-    pull_policy: never
+    image: ghcr.io/rossbates/plane-frontend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    pull_policy: always
     networks:
       default:
         aliases: [plane-ce-web]
@@ -73,8 +73,8 @@ services:
 
   live:
     <<: *common
-    image: plane-live-local:v1.4.2-pages-api-v1
-    pull_policy: never
+    image: ghcr.io/rossbates/plane-live:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    pull_policy: always
     networks:
       default:
         aliases: [plane-ce-live]
@@ -92,8 +92,8 @@ services:
 
   api:
     <<: *common
-    image: plane-backend-local:v1.4.2-pages-api-v1
-    pull_policy: never
+    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    pull_policy: always
     command: ./bin/docker-entrypoint-api.sh
     networks:
       default:
@@ -121,8 +121,8 @@ services:
 
   worker:
     <<: *common
-    image: plane-backend-local:v1.4.2-pages-api-v1
-    pull_policy: never
+    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    pull_policy: always
     command:
       - /bin/bash
       - -ec
@@ -138,8 +138,8 @@ services:
 
   beat-worker:
     <<: *common
-    image: plane-backend-local:v1.4.2-pages-api-v1
-    pull_policy: never
+    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    pull_policy: always
     command: ./bin/docker-entrypoint-beat.sh
     mem_limit: 256m
     cpus: 0.25
@@ -153,8 +153,8 @@ services:
   migrator:
     <<: *common
     restart: on-failure
-    image: plane-backend-local:v1.4.2-pages-api-v1
-    pull_policy: never
+    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    pull_policy: always
     command: ./bin/docker-entrypoint-migrator.sh
     mem_limit: 768m
     cpus: 1.0
