@@ -21,6 +21,12 @@ Deployment recipes describe how to build/operate the fork. Never introduce paral
 
 Private topology, storage/DB choices, hostnames and endpoint values belong in a private deployment checkout/runtime configuration. Credentials and backups stay outside even that repository. A private Compose-only change usually does not need a new application image.
 
+## Translation packaging and regression checks
+
+`@plane/i18n` ships its module tree and authoritative locale JSON together under `dist/`. Keep the dynamic import in `dist/core/instance.js` relative to `dist/locales/`; JSON import attributes also support native Node/SSR loading. Vite normally excludes `node_modules` from dynamic-import expansion, so all three browser applications explicitly allow the pnpm-injected `@plane/i18n` package while continuing to exclude other dependencies.
+
+The package build runs unmocked distribution tests for every namespace in every supported language. CI also launches the actual frontend runtime image and checks English/French sign-in labels, email inputs, and buttons with Playwright; only unauthenticated API state is mocked. Browser checks must pass before any release images publish. HTTP health checks and UI unit tests that mock the translator do not validate localization. The browser test deliberately scopes failures to translations, not unrelated upstream SPA-shell hydration warnings.
+
 ## Upgrade checklist
 
 1. Review upstream release, dependency/security changes, API contracts and all database migrations.

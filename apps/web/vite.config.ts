@@ -20,6 +20,11 @@ export default defineConfig(() => ({
   },
   build: {
     assetsInlineLimit: 0,
+    // pnpm injects this workspace package under node_modules. Expand its
+    // locale imports instead of leaving unresolved JSON URLs in browser JS.
+    dynamicImportVarsOptions: {
+      exclude: [/^(?!.*\/@plane\/i18n\/).*\/node_modules\//],
+    },
   },
   plugins: [reactRouter(), tsconfigPaths({ projects: [path.resolve(__dirname, "tsconfig.json")] })],
   resolve: {
