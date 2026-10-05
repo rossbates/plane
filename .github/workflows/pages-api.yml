@@ -24,6 +24,18 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
+      - name: Validate production Compose (dummy values only)
+        env:
+          APP_DOMAIN: plane.example.com
+          WEB_URL: https://plane.example.com
+          POSTGRES_PASSWORD: compose-validation-only
+          RABBITMQ_PASSWORD: compose-validation-only
+          SECRET_KEY: compose-validation-only
+          LIVE_SERVER_SECRET_KEY: compose-validation-only
+          AWS_ACCESS_KEY_ID: compose-validation-only
+          AWS_SECRET_ACCESS_KEY: compose-validation-only
+          PLANE_IMAGE_TAG: sha-${{ github.sha }}
+        run: docker compose -f deployments/pages-api/compose.yml config --quiet
       - name: Pages API contract tests (isolated Postgres and Redis)
         run: docker compose -p plane-pages-api-tests -f deployments/pages-api/compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
       - name: Lint and format fork Python files

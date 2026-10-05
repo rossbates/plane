@@ -80,13 +80,27 @@ Each image receives `sha-<full commit SHA>` and the rolling `selfhost-v1.4.2` ta
 
 New GHCR packages normally start private. For anonymous Dokploy pulls, set each package's visibility to **Public** in its GitHub package settings once. Alternatively, keep packages private and configure a GHCR registry in Dokploy using a securely stored token with `read:packages`; do not put it in Compose, Git, or chat.
 
-In Dokploy's Environment settings set `PLANE_IMAGE_TAG=sha-<full commit SHA>`, then use the Compose in `compose.example.yml` and redeploy. It uses `pull_policy: always`; api/worker/beat-worker/migrator share the backend image, live uses its paired image, and web uses the custom frontend image. No local Docker builds are required on the deployment host. Pinning one SHA avoids mixed backend/Live releases and makes rollback explicit. If unset, Compose falls back to the rolling branch tag for development.
+In Dokploy's Environment settings set `PLANE_IMAGE_TAG=sha-<full commit SHA>`, then sync `deployments/pages-api/compose.yml` into Dokploy's Raw Compose and redeploy. It uses `pull_policy: always`; api/worker/beat-worker/migrator share the backend image, live uses its paired image, and web uses the custom frontend image. No local Docker builds are required on the deployment host. Pinning one SHA avoids mixed backend/Live releases and makes rollback explicit. If unset, Compose falls back to the rolling branch tag for development.
 
 Publishing is automatic; production deployment is intentionally separate. After pushing code, wait for all publish jobs, select that commit's tag in Dokploy, and redeploy. GitHub Actions does not receive Dokploy credentials or automatically change production.
 
-## Existing Compose and frontend
+## Production Compose: source of truth
 
-`compose.example.yml` is the single-user stack using GHCR and environment-variable references only (no live credentials). `frontend/` contains the reproducible existing custom frontend image: Community badge, GitHub star link, and Billing and Plans sidebar item are hidden. Build it with:
+`deployments/pages-api/compose.yml` on `selfhost-v1.4.2` is the canonical production Compose, **not a generic example or an upstream mirror**. It intentionally follows this owner's preferred self-hosted configuration and may diverge from the official Plane deployment. Make infrastructure changes here, review/commit/push them, then sync the file into Dokploy's Raw Compose. If an emergency edit is made in Dokploy, copy it back into this file promptly to avoid two competing configurations.
+
+Keep secrets, endpoint values, credentials, and the deployed `PLANE_IMAGE_TAG` in Dokploy's Environment settings, outside Git. The Compose should reference those variables. Validate changes with `docker compose --env-file <your-private-env-file> -f deployments/pages-api/compose.yml config --quiet` before deployment; CI also checks it with dummy values. A Compose-only change does not require selecting a newer app image tag unless application code changes too.
+
+### Future S3 storage migration
+
+MinIO remains in the current stack; moving to network RustFS is a separate, deliberate migration. Before removing it:
+- Parameterize the relevant backend S3 settings in Compose, then configure the RustFS endpoint, bucket, credentials, region, and TLS settings through Dokploy's Environment.
+- Review both backend storage URL behavior and the proxy's `/uploads` routes, which currently point at `plane-ce-minio:9000`. Removing the service alone would leave broken routes.
+- Ensure browsers can use the generated upload/download URLs and test uploads, downloads, and existing attachments.
+- Copy/verify existing objects before cutting over, and retain the old MinIO volume and a rollback path until verification is complete.
+
+### Existing frontend customizations
+
+`frontend/` contains the reproducible existing custom frontend image: Community badge, GitHub star link, and Billing and Plans sidebar item are hidden. Build it with:
 
 ```sh
 docker build -t plane-frontend-local:v1.4.2-clean-ui-v4 deployments/pages-api/frontend
