@@ -45,7 +45,15 @@ storybook-static/
 *storybook.log
 *.tsbuildinfo
 
-# Local env and secrets
+# Local env and secrets (including optional ignored deployment overlays)
+**/.env
+**/.env.*
+!**/.env.example
+deployments/private/
+**/logs/
+*.dump
+*.sql.gz
+*.backup
 .env.local
 .env.development.local
 .env.test.local

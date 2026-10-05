@@ -1,5 +1,6 @@
 # Plane Community Edition v1.4.2, based on the official release Compose.
-# Single-user sizing; Dokploy supplies secrets through its Environment settings.
+# Generic single-user reference, NOT the private production deployment.
+# Copy outside the public checkout; supply secrets through Dokploy Environment.
 x-common: &common
   restart: unless-stopped
   init: true
@@ -14,6 +15,7 @@ x-app-env: &app-env
   CORS_ALLOWED_ORIGINS: ${WEB_URL}
   APP_DOMAIN: ${APP_DOMAIN}
   DEBUG: "0"
+  HIDE_PROMOTIONAL_UI: ${HIDE_PROMOTIONAL_UI:-0}
   GUNICORN_WORKERS: "1"
   DATABASE_URL: postgresql://plane:${POSTGRES_PASSWORD}@plane-db:5432/plane
   REDIS_URL: redis://plane-redis:6379/0
@@ -36,7 +38,7 @@ x-app-env: &app-env
 services:
   web:
     <<: *common
-    image: ghcr.io/rossbates/plane-frontend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-frontend:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
     pull_policy: always
     networks:
       default:
@@ -49,7 +51,8 @@ services:
 
   space:
     <<: *common
-    image: makeplane/plane-space:v1.4.2
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-space:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
+    pull_policy: always
     networks:
       default:
         aliases: [plane-ce-space]
@@ -61,7 +64,8 @@ services:
 
   admin:
     <<: *common
-    image: makeplane/plane-admin:v1.4.2
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-admin:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
+    pull_policy: always
     networks:
       default:
         aliases: [plane-ce-admin]
@@ -73,7 +77,7 @@ services:
 
   live:
     <<: *common
-    image: ghcr.io/rossbates/plane-live:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-live:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
     pull_policy: always
     networks:
       default:
@@ -92,7 +96,7 @@ services:
 
   api:
     <<: *common
-    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-backend:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
     pull_policy: always
     command: ./bin/docker-entrypoint-api.sh
     networks:
@@ -121,7 +125,7 @@ services:
 
   worker:
     <<: *common
-    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-backend:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
     pull_policy: always
     command:
       - /bin/bash
@@ -138,7 +142,7 @@ services:
 
   beat-worker:
     <<: *common
-    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-backend:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
     pull_policy: always
     command: ./bin/docker-entrypoint-beat.sh
     mem_limit: 256m
@@ -153,7 +157,7 @@ services:
   migrator:
     <<: *common
     restart: on-failure
-    image: ghcr.io/rossbates/plane-backend:${PLANE_IMAGE_TAG:-selfhost-v1.4.2}
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-backend:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
     pull_policy: always
     command: ./bin/docker-entrypoint-migrator.sh
     mem_limit: 768m
@@ -236,7 +240,8 @@ services:
 
   proxy:
     <<: *common
-    image: makeplane/plane-proxy:v1.4.2
+    image: ghcr.io/${PLANE_IMAGE_OWNER:?Set PLANE_IMAGE_OWNER}/plane-proxy:${PLANE_IMAGE_TAG:?Set an immutable sha tag}
+    pull_policy: always
     configs:
       - source: plane_caddyfile
         target: /etc/caddy/Caddyfile

@@ -1,58 +1,42 @@
-FROM python:3.12.10-alpine
-
-# set environment variables
-ENV PYTHONDONTWRITEBYTECODE=1
-ENV PYTHONUNBUFFERED=1
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1 
-ENV INSTANCE_CHANGELOG_URL=https://sites.plane.so/pages/691ef037bcfe416a902e48cb55f59891/
-
-# Update system packages for security
-RUN apk update && apk upgrade
-
+# syntax=docker/dockerfile:1.7
+# Build the application from this checkout, not from an official Plane binary.
+FROM python:3.12-alpine@sha256:1b668429b3511ab407d8e00648891631b0b1a4d7e15e3ca70f38ab5b91ad4ab4 AS base
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PATH="/opt/venv/bin:$PATH" \
+    INSTANCE_CHANGELOG_URL=https://sites.plane.so/pages/691ef037bcfe416a902e48cb55f59891/
 WORKDIR /code
 
-RUN apk add --no-cache --upgrade \
-    "libpq" \
-    "libxslt" \
-    "xmlsec" \
-    "ca-certificates" \
-    "openssl"
-
+FROM base AS builder
+RUN apk add --no-cache build-base cargo libffi-dev postgresql-dev libxslt-dev xmlsec-dev openssl-dev
 COPY requirements.txt ./
 COPY requirements ./requirements
-RUN apk add --no-cache libffi-dev
-RUN apk add --no-cache --virtual .build-deps \
-    "bash~=5.2" \
-    "g++" \
-    "gcc" \
-    "cargo" \
-    "git" \
-    "make" \
-    "postgresql-dev" \
-    "libc-dev" \
-    "linux-headers" \
-    && \
-    pip install -r requirements.txt --compile --no-cache-dir \
-    && \
-    apk del .build-deps \
-    && \
-    rm -rf /var/cache/apk/*
+RUN python -m venv /opt/venv \
+    && pip install --no-cache-dir -c requirements/selfhost-constraints.txt -r requirements.txt \
+    && pip check
 
-
-# Add in Django deps and generate Django's static files
-COPY manage.py manage.py
-COPY plane plane/
-COPY templates templates/
-COPY package.json package.json
-
-RUN apk --no-cache add "bash~=5.2"
-COPY ./bin ./bin/
-
-RUN mkdir -p /code/plane/logs
-RUN chmod +x ./bin/*
-RUN chmod -R 777 /code
-
-# Expose container port and run entry point script
+FROM base AS runtime
+RUN apk add --no-cache bash libpq libxslt xmlsec ca-certificates openssl libffi libstdc++ \
+    && addgroup -S -g 10001 plane \
+    && adduser -S -D -H -u 10001 -G plane plane
+COPY --from=builder /opt/venv /opt/venv
+COPY --chown=plane:plane manage.py package.json ./
+COPY --chown=plane:plane plane ./plane
+COPY --chown=plane:plane templates ./templates
+COPY --chown=plane:plane bin ./bin
+RUN chmod +x ./bin/* \
+    && mkdir -p /code/plane/logs /code/plane/static-assets/collected-static \
+    && chown -R plane:plane /code/plane/logs /code/plane/static-assets
+USER plane
 EXPOSE 8000
-
 CMD ["./bin/docker-entrypoint-api.sh"]
+
+# Test the same source-built runtime; test tools never enter production images.
+FROM runtime AS tests
+USER root
+RUN pip install --no-cache-dir pytest==9.0.3 pytest-django==4.12.0 pytest-mock==3.11.1 factory-boy==3.3.0 ruff==0.15.6
+COPY pytest.ini pyproject.toml ./
+USER plane
+ENV PYTEST_ADDOPTS="-o cache_dir=/tmp/pytest-cache" RUFF_CACHE_DIR=/tmp/ruff-cache
+CMD ["pytest", "plane/tests/contract/api/test_pages.py", "plane/tests/contract/api/test_instance_ui.py", "-q"]

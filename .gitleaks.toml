@@ -1,0 +1,11 @@
+title = "Plane fork secret scanning"
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Two exact public dummy credentials in the original isolated test stack, never production credentials"
+regexTarget = "secret"
+regexes = [
+  '^8b60a32bdb7d7e55490230c2b27b1a0c4855883903c0b4938b580c92d7cd3e8a$',
+  '^60fd01940a5554600a090420c739553912d317544a4c3b55eaf99ac14073c7aee$'
+]

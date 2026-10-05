@@ -10,6 +10,7 @@ import { observer } from "mobx-react";
 import { useTranslation } from "@plane/i18n";
 import { Tooltip } from "@plane/propel/tooltip";
 // hooks
+import { useInstance } from "@/hooks/store/use-instance";
 import { usePlatformOS } from "@/hooks/use-platform-os";
 import packageJson from "package.json";
 // local components
@@ -23,6 +24,9 @@ export const WorkspaceEditionBadge = observer(function WorkspaceEditionBadge() {
   const { t } = useTranslation();
   // platform
   const { isMobile } = usePlatformOS();
+  const { config } = useInstance();
+
+  if (config?.hide_promotional_ui) return null;
 
   return (
     <>

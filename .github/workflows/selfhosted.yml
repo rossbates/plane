@@ -1,0 +1,197 @@
+name: Self-hosted platform
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'deployments/selfhosted/**'
+      - 'docs/selfhosted/**'
+      - '.github/workflows/selfhosted.yml'
+      - '.github/dependabot.yml'
+      - '.gitleaks.toml'
+      - '.dockerignore'
+      - '.gitignore'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+  pull_request:
+    paths:
+      - 'apps/**'
+      - 'packages/**'
+      - 'deployments/selfhosted/**'
+      - 'docs/selfhosted/**'
+      - '.github/**'
+      - '.gitleaks.toml'
+      - '.dockerignore'
+      - '.gitignore'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'turbo.json'
+permissions:
+  contents: read
+concurrency:
+  group: selfhosted-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+      - name: Check public/private deployment boundary
+        run: python3 deployments/selfhosted/check-policy.py
+      - name: Scan fork history for secrets (redacted)
+        run: >-
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo:ro"
+          ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+          git /repo --config /repo/.gitleaks.toml --redact --no-banner
+          --log-opts='5f7d92784c403f76284f0f16718f320221dc7fec..HEAD'
+      - name: Validate generic Compose (dummy values only)
+        env:
+          APP_DOMAIN: plane.example.com
+          WEB_URL: https://plane.example.com
+          POSTGRES_PASSWORD: compose-validation-only
+          RABBITMQ_PASSWORD: compose-validation-only
+          SECRET_KEY: compose-validation-only
+          LIVE_SERVER_SECRET_KEY: compose-validation-only
+          AWS_ACCESS_KEY_ID: compose-validation-only
+          AWS_SECRET_ACCESS_KEY: compose-validation-only
+          PLANE_IMAGE_OWNER: example
+          PLANE_IMAGE_TAG: sha-${{ github.sha }}
+        run: docker compose -f deployments/selfhosted/compose.example.yml config --quiet
+
+  api:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: apps/api
+          file: apps/api/Dockerfile.api
+          target: tests
+          load: true
+          tags: plane-selfhosted-backend:test
+          cache-from: type=gha,scope=source-backend
+          cache-to: type=gha,mode=max,scope=source-backend
+      - name: Contract tests against source-built backend (isolated Postgres/Redis)
+        run: docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml up --no-build --abort-on-container-exit --exit-code-from tests
+      - name: Lint and format fork Python changes
+        run: |
+          files='plane/api/serializers/page.py plane/api/views/page.py plane/api/urls/page.py plane/utils/page_document_lock.py plane/tests/contract/api/test_pages.py plane/tests/contract/api/test_instance_ui.py plane/license/api/views/instance.py'
+          docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml run --rm --no-deps tests ruff check $files
+          docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml run --rm --no-deps tests ruff format --check $files
+      - name: Remove only disposable test resources
+        if: always()
+        run: docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml down -v
+
+  javascript:
+    name: Test source-built ${{ matrix.component }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: frontend
+            dockerfile: apps/web/Dockerfile.web
+          - component: live
+            dockerfile: apps/live/Dockerfile.live
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: ${{ matrix.dockerfile }}
+          target: checks
+          load: true
+          tags: plane-${{ matrix.component }}:checks
+          cache-from: type=gha,scope=source-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=source-${{ matrix.component }}
+      - name: Run source unit tests
+        run: docker run --rm plane-${{ matrix.component }}:checks
+      - name: Check changed TypeScript formatting and lint
+        run: |
+          if [ '${{ matrix.component }}' = live ]; then
+            files='apps/live/src/extensions/redis.ts apps/live/tests/extensions/redis.test.ts'
+          else
+            files='apps/web/core/components/workspace/edition-badge.tsx apps/web/app/(all)/[workspaceSlug]/(projects)/star-us-link.tsx apps/web/core/components/settings/workspace/sidebar/item-categories.tsx apps/web/tests/promotional-ui.test.tsx apps/web/vitest.config.ts packages/types/src/instance/base.ts'
+          fi
+          docker run --rm plane-${{ matrix.component }}:checks pnpm exec oxfmt --check $files
+          docker run --rm plane-${{ matrix.component }}:checks pnpm exec oxlint --deny-warnings $files
+
+  publish:
+    name: Publish ${{ matrix.component }}
+    needs: [policy, api, javascript]
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/selfhost-v1.4.2'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - component: backend
+            context: apps/api
+            dockerfile: apps/api/Dockerfile.api
+          - component: live
+            context: .
+            dockerfile: apps/live/Dockerfile.live
+          - component: frontend
+            context: .
+            dockerfile: apps/web/Dockerfile.web
+          - component: admin
+            context: .
+            dockerfile: apps/admin/Dockerfile.admin
+          - component: space
+            context: .
+            dockerfile: apps/space/Dockerfile.space
+          - component: proxy
+            context: apps/proxy
+            dockerfile: apps/proxy/Dockerfile.ce
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - name: Authenticate to GHCR with the workflow token
+        uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish from actual application source
+        id: build
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          target: runtime
+          platforms: linux/amd64
+          push: true
+          provenance: mode=min
+          sbom: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/plane-${{ matrix.component }}:sha-${{ github.sha }}
+            ghcr.io/${{ github.repository_owner }}/plane-${{ matrix.component }}:selfhost-v1.4.2
+          labels: |
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=sha-${{ github.sha }}
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          cache-from: type=gha,scope=source-${{ matrix.component }}
+          cache-to: type=gha,mode=max,scope=source-${{ matrix.component }}
+      - name: Record published image
+        env:
+          IMAGE: ghcr.io/${{ github.repository_owner }}/plane-${{ matrix.component }}
+          SHA: ${{ github.sha }}
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          printf '### %s\n\n- Tag: `sha-%s`\n- Digest: `%s`\n' "$IMAGE" "$SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"

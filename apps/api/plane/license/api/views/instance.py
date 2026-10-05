@@ -165,6 +165,8 @@ class InstanceEndpoint(BaseAPIView):
 
         data["instance_changelog_url"] = settings.INSTANCE_CHANGELOG_URL
         data["is_self_managed"] = settings.IS_SELF_MANAGED
+        # Display preference only; never changes authorization or billing routes.
+        data["hide_promotional_ui"] = os.environ.get("HIDE_PROMOTIONAL_UI", "0").lower() in ("1", "true", "yes")
 
         instance_data = serializer.data
         instance_data["workspaces_exist"] = Workspace.objects.count() >= 1

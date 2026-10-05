@@ -65,6 +65,8 @@ export interface IInstanceConfig {
   space_base_url: string | undefined;
   admin_base_url: string | undefined;
   is_self_managed: boolean;
+  /** Instance-wide display preference; not a permission or entitlement. */
+  hide_promotional_ui?: boolean;
   instance_changelog_url?: string;
 }
 

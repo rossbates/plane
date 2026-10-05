@@ -4,6 +4,11 @@ packages:
   - "!apps/api"
   - "!apps/proxy"
 
+# Deterministic production deployments use the frozen workspace lockfile.
+injectWorkspacePackages: true
+syncInjectedDepsAfterScripts:
+  - build
+
 catalog:
   "@atlaskit/pragmatic-drag-and-drop": "1.7.4"
   "@atlaskit/pragmatic-drag-and-drop-auto-scroll": "1.4.0"

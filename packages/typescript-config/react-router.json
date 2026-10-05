@@ -10,6 +10,9 @@
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,
     "noEmit": true,
+    "composite": false,
+    "declaration": false,
+    "declarationMap": false,
     "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true

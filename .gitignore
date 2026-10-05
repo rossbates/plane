@@ -117,3 +117,13 @@ packages/i18n/src/types/keys.generated.ts
 
 # Local security notes (not for version control)
 /security/
+
+# Private deployment configuration must never enter the public fork.
+/deployments/private/
+.env.*
+!.env.example
+!**/.env.example
+*.dump
+*.sql.gz
+*.backup
+*.key

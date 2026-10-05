@@ -21,9 +21,10 @@ services:
       timeout: 5s
       retries: 20
   tests:
+    image: plane-selfhosted-backend:test
     build:
-      context: ../..
-      dockerfile: deployments/pages-api/Dockerfile
+      context: ../../apps/api
+      dockerfile: Dockerfile.api
       target: tests
     environment:
       DJANGO_SETTINGS_MODULE: plane.settings.test

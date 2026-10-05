@@ -9,7 +9,11 @@ import { set } from "lodash-es";
 import { DEFAULT_WORK_ITEM_FORM_VALUES } from "@plane/constants";
 import type { IPartialProject, ISearchIssueResponse, IState, TIssue } from "@plane/types";
 
-export const getUpdateFormDataForReset = (projectId: string | null | undefined, formData: Partial<TIssue>) => ({
+// An explicit public type keeps declaration output portable with injected workspaces.
+export const getUpdateFormDataForReset = (
+  projectId: string | null | undefined,
+  formData: Partial<TIssue>
+): Partial<TIssue> => ({
   ...DEFAULT_WORK_ITEM_FORM_VALUES,
   project_id: projectId,
   name: formData.name,
