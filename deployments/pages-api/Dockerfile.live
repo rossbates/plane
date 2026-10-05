@@ -1,0 +1,6 @@
+FROM makeplane/plane-live@sha256:cbb630ccaea24bb9998040cb45c11619a7501e8b6c75d449df2f8fd9b9cddbd0
+# Apply the equivalent small Redis onLoadDocument source change to the pinned bundle.
+COPY deployments/pages-api/patch-live.mjs /tmp/patch-live.mjs
+RUN node /tmp/patch-live.mjs && node --check /app/apps/live/dist/start.mjs && rm /tmp/patch-live.mjs
+COPY apps/live/src/extensions/redis.ts /usr/share/doc/plane-pages-api/redis.ts
+COPY deployments/pages-api/README.md /usr/share/doc/plane-pages-api/README.md

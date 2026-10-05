@@ -6,7 +6,7 @@
 
 import { Redis as HocuspocusRedis } from "@hocuspocus/extension-redis";
 import { OutgoingMessage } from "@hocuspocus/server";
-import type { onConfigurePayload } from "@hocuspocus/server";
+import type { onConfigurePayload, onLoadDocumentPayload } from "@hocuspocus/server";
 import { logger } from "@plane/logger";
 import { AppError } from "@/lib/errors";
 import { redisManager } from "@/redis";
@@ -27,6 +27,14 @@ export class Redis extends HocuspocusRedis {
 
   constructor() {
     super({ redis: getRedisClient() });
+  }
+
+  async onLoadDocument({ documentName }: onLoadDocumentPayload) {
+    // Subscribe BEFORE the Database extension reads the binary description.
+    // REST body replacement checks this channel under a shared Redis lock;
+    // this closes the race between loading old state and afterLoadDocument.
+    // Native afterLoadDocument still performs its normal sync broadcasts.
+    await this.sub.subscribe(this["subKey"](documentName));
   }
 
   async onConfigure(payload: onConfigurePayload) {

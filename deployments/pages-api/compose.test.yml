@@ -1,0 +1,50 @@
+# Isolated, disposable tests: no host ports, production networks, or production data.
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: plane_test
+      POSTGRES_PASSWORD: plane_test
+      POSTGRES_DB: plane_test
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U plane_test -d plane_test"]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+  redis:
+    image: valkey/valkey:7.2.11-alpine
+    tmpfs: [/data]
+    healthcheck:
+      test: [CMD, valkey-cli, ping]
+      interval: 2s
+      timeout: 5s
+      retries: 20
+  tests:
+    build:
+      context: ../..
+      dockerfile: deployments/pages-api/Dockerfile
+      target: tests
+    environment:
+      DJANGO_SETTINGS_MODULE: plane.settings.test
+      SECRET_KEY: 8b60a32bdb7d7e55490230c2b27b1a0c4855883903c0b4938b580c92d7cd3e8a
+      LIVE_SERVER_SECRET_KEY: 60fd01940a5554600a090420c739553912d317544a4c3b55eaf99ac14073c7aee
+      DATABASE_URL: postgresql://plane_test:plane_test@db:5432/plane_test
+      REDIS_URL: redis://redis:6379/0
+      AMQP_URL: amqp://unused:unused@unavailable/unused
+      WEB_URL: http://testserver
+      CORS_ALLOWED_ORIGINS: http://testserver
+      DEBUG: "0"
+      USE_MINIO: "0"
+      API_KEY_RATE_LIMIT: 10000/minute
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: ${PLANE_PAGES_TEST_SUBNET:-172.16.251.0/24}

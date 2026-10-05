@@ -54,6 +54,7 @@ from plane.bgtasks.page_version_task import track_page_version
 from plane.bgtasks.recent_visited_task import recent_visited_task
 from plane.bgtasks.copy_s3_object import copy_s3_objects_of_description_and_assets
 from plane.app.permissions import ProjectPagePermission
+from plane.utils.page_document_lock import coordinate_page_document
 
 
 def unarchive_archive_page_and_descendants(page_id, archived_at):
@@ -498,6 +499,7 @@ class PageFavoriteViewSet(BaseViewSet):
 class PagesDescriptionViewSet(BaseViewSet):
     permission_classes = [ProjectPagePermission]
 
+    @coordinate_page_document
     def retrieve(self, request, slug, project_id, page_id):
         page = Page.objects.get(
             Q(owned_by=self.request.user) | Q(access=0),
@@ -518,6 +520,7 @@ class PagesDescriptionViewSet(BaseViewSet):
         response["Content-Disposition"] = 'attachment; filename="page_description.bin"'
         return response
 
+    @coordinate_page_document
     def partial_update(self, request, slug, project_id, page_id):
         page = Page.objects.get(
             Q(owned_by=self.request.user) | Q(access=0),

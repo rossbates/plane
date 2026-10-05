@@ -1,0 +1,305 @@
+# Plane Community Edition v1.4.2, based on the official release Compose.
+# Single-user sizing; Dokploy supplies secrets through its Environment settings.
+x-common: &common
+  restart: unless-stopped
+  init: true
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+x-app-env: &app-env
+  WEB_URL: ${WEB_URL}
+  CORS_ALLOWED_ORIGINS: ${WEB_URL}
+  APP_DOMAIN: ${APP_DOMAIN}
+  DEBUG: "0"
+  GUNICORN_WORKERS: "1"
+  DATABASE_URL: postgresql://plane:${POSTGRES_PASSWORD}@plane-db:5432/plane
+  REDIS_URL: redis://plane-redis:6379/0
+  REDIS_HOST: plane-redis
+  REDIS_PORT: "6379"
+  AMQP_URL: amqp://plane:${RABBITMQ_PASSWORD}@plane-mq:5672/plane
+  SECRET_KEY: ${SECRET_KEY}
+  LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY}
+  USE_MINIO: "1"
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  AWS_S3_ENDPOINT_URL: http://plane-minio:9000
+  AWS_S3_BUCKET_NAME: uploads
+  MINIO_ENDPOINT_SSL: "0"
+  FILE_SIZE_LIMIT: "5242880"
+  API_KEY_RATE_LIMIT: 60/minute
+  AUTHENTICATION_RATE_LIMIT: 10/minute
+
+services:
+  web:
+    <<: *common
+    image: plane-frontend-local:v1.4.2-clean-ui-v4
+    pull_policy: never
+    networks:
+      default:
+        aliases: [plane-ce-web]
+    mem_limit: 384m
+    cpus: 0.75
+    depends_on:
+      api:
+        condition: service_healthy
+
+  space:
+    <<: *common
+    image: makeplane/plane-space:v1.4.2
+    networks:
+      default:
+        aliases: [plane-ce-space]
+    mem_limit: 256m
+    cpus: 0.5
+    depends_on:
+      api:
+        condition: service_healthy
+
+  admin:
+    <<: *common
+    image: makeplane/plane-admin:v1.4.2
+    networks:
+      default:
+        aliases: [plane-ce-admin]
+    mem_limit: 256m
+    cpus: 0.5
+    depends_on:
+      api:
+        condition: service_healthy
+
+  live:
+    <<: *common
+    image: plane-live-local:v1.4.2-pages-api-v1
+    pull_policy: never
+    networks:
+      default:
+        aliases: [plane-ce-live]
+    mem_limit: 256m
+    cpus: 0.5
+    environment:
+      API_BASE_URL: http://api:8000
+      LIVE_SERVER_SECRET_KEY: ${LIVE_SERVER_SECRET_KEY}
+      REDIS_URL: redis://plane-redis:6379/0
+      REDIS_HOST: plane-redis
+      REDIS_PORT: "6379"
+    depends_on:
+      api:
+        condition: service_healthy
+
+  api:
+    <<: *common
+    image: plane-backend-local:v1.4.2-pages-api-v1
+    pull_policy: never
+    command: ./bin/docker-entrypoint-api.sh
+    networks:
+      default:
+        aliases: [plane-ce-api]
+    mem_limit: 768m
+    cpus: 1.0
+    environment: *app-env
+    volumes:
+      - logs_api:/code/plane/logs
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/instances/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 120s
+      retries: 5
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+      plane-redis:
+        condition: service_healthy
+      plane-mq:
+        condition: service_healthy
+      plane-minio:
+        condition: service_started
+
+  worker:
+    <<: *common
+    image: plane-backend-local:v1.4.2-pages-api-v1
+    pull_policy: never
+    command:
+      - /bin/bash
+      - -ec
+      - python manage.py wait_for_db; python manage.py wait_for_migrations; exec celery -A plane worker -l info --concurrency=1 --max-tasks-per-child=100
+    mem_limit: 512m
+    cpus: 0.75
+    environment: *app-env
+    volumes:
+      - logs_worker:/code/plane/logs
+    depends_on:
+      api:
+        condition: service_healthy
+
+  beat-worker:
+    <<: *common
+    image: plane-backend-local:v1.4.2-pages-api-v1
+    pull_policy: never
+    command: ./bin/docker-entrypoint-beat.sh
+    mem_limit: 256m
+    cpus: 0.25
+    environment: *app-env
+    volumes:
+      - logs_beat:/code/plane/logs
+    depends_on:
+      api:
+        condition: service_healthy
+
+  migrator:
+    <<: *common
+    restart: on-failure
+    image: plane-backend-local:v1.4.2-pages-api-v1
+    pull_policy: never
+    command: ./bin/docker-entrypoint-migrator.sh
+    mem_limit: 768m
+    cpus: 1.0
+    environment: *app-env
+    volumes:
+      - logs_migrator:/code/plane/logs
+    depends_on:
+      plane-db:
+        condition: service_healthy
+      plane-redis:
+        condition: service_healthy
+
+  plane-db:
+    <<: *common
+    image: postgres:15-alpine
+    command: ["postgres", "-c", "max_connections=60", "-c", "shared_buffers=128MB", "-c", "work_mem=4MB", "-c", "maintenance_work_mem=64MB"]
+    mem_limit: 512m
+    cpus: 0.75
+    environment:
+      POSTGRES_USER: plane
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: plane
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U plane -d plane"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  plane-redis:
+    <<: *common
+    image: valkey/valkey:7.2.11-alpine
+    command: ["valkey-server", "--appendonly", "yes", "--maxmemory", "64mb", "--maxmemory-policy", "noeviction"]
+    mem_limit: 128m
+    cpus: 0.25
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  plane-mq:
+    <<: *common
+    image: rabbitmq:3.13.6-alpine
+    mem_limit: 384m
+    cpus: 0.5
+    environment:
+      RABBITMQ_DEFAULT_USER: plane
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_VHOST: plane
+      RABBITMQ_SERVER_ADDITIONAL_ERL_ARGS: "+S 2:2 +A 4 -rabbit vm_memory_high_watermark {absolute,134217728}"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 15s
+      timeout: 10s
+      start_period: 30s
+      retries: 10
+
+  plane-minio:
+    <<: *common
+    image: pgsty/minio:RELEASE.2026-08-04T00-00-00Z
+    networks:
+      default:
+        aliases: [plane-ce-minio]
+    command: server /export --console-address ":9090"
+    mem_limit: 384m
+    cpus: 0.5
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
+      GOMAXPROCS: "2"
+    volumes:
+      - uploads:/export
+
+  proxy:
+    <<: *common
+    image: makeplane/plane-proxy:v1.4.2
+    configs:
+      - source: plane_caddyfile
+        target: /etc/caddy/Caddyfile
+    mem_limit: 128m
+    cpus: 0.5
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+      FILE_SIZE_LIMIT: "5242880"
+      BUCKET_NAME: uploads
+      SITE_ADDRESS: ":80"
+      CERT_EMAIL: ""
+      CERT_ACME_DNS: ""
+      CERT_ACME_CA: https://acme-v02.api.letsencrypt.org/directory
+      TRUSTED_PROXIES: private_ranges
+    volumes:
+      - proxy_config:/config
+      - proxy_data:/data
+    depends_on:
+      - web
+      - space
+      - admin
+      - live
+
+volumes:
+  pgdata:
+  redisdata:
+  rabbitmq_data:
+  uploads:
+  logs_api:
+  logs_worker:
+  logs_beat:
+  logs_migrator:
+  proxy_config:
+  proxy_data:
+
+# Unique DNS aliases avoid collisions with other Dokploy stacks on the proxy's
+# shared dokploy-network. Routing is otherwise the official Plane CE Caddyfile.
+configs:
+  plane_caddyfile:
+    content: |
+      (plane_proxy) {
+        request_body {
+          max_size {$$FILE_SIZE_LIMIT}
+        }
+        redir /spaces /spaces/ permanent
+        reverse_proxy /spaces/* plane-ce-space:3000
+        redir /god-mode /god-mode/ permanent
+        reverse_proxy /god-mode/* plane-ce-admin:3000
+        reverse_proxy /live/* plane-ce-live:3000
+        reverse_proxy /api/* plane-ce-api:8000
+        reverse_proxy /auth/* plane-ce-api:8000
+        reverse_proxy /static/* plane-ce-api:8000
+        reverse_proxy /{$$BUCKET_NAME}/* plane-ce-minio:9000
+        reverse_proxy /{$$BUCKET_NAME} plane-ce-minio:9000
+        reverse_proxy /* plane-ce-web:3000
+      }
+      {
+        servers {
+          max_header_size 25MB
+          client_ip_headers X-Forwarded-For X-Real-IP
+          trusted_proxies static private_ranges
+        }
+      }
+      :80 {
+        import plane_proxy
+      }

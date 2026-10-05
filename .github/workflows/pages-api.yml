@@ -1,0 +1,35 @@
+name: Fork Pages API
+on:
+  push:
+    paths:
+      - 'apps/api/**'
+      - 'apps/live/src/extensions/redis.ts'
+      - 'deployments/pages-api/**'
+      - '.github/workflows/pages-api.yml'
+  pull_request:
+    paths:
+      - 'apps/api/**'
+      - 'apps/live/src/extensions/redis.ts'
+      - 'deployments/pages-api/**'
+      - '.github/workflows/pages-api.yml'
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Pages API contract tests (isolated Postgres and Redis)
+        run: docker compose -p plane-pages-api-tests -f deployments/pages-api/compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+      - name: Lint and format fork Python files
+        run: |
+          docker compose -p plane-pages-api-tests -f deployments/pages-api/compose.test.yml run --rm --no-deps tests ruff check plane/api/serializers/page.py plane/api/views/page.py plane/api/urls/page.py plane/utils/page_document_lock.py plane/tests/contract/api/test_pages.py
+          docker compose -p plane-pages-api-tests -f deployments/pages-api/compose.test.yml run --rm --no-deps tests ruff format --check plane/api/serializers/page.py plane/api/views/page.py plane/api/urls/page.py plane/utils/page_document_lock.py plane/tests/contract/api/test_pages.py
+      - name: Build and test Live coordination hook
+        run: |
+          docker build -f deployments/pages-api/Dockerfile.live -t plane-live-pages-api:test .
+          docker run --rm --entrypoint node -v "$PWD/deployments/pages-api/live-coordination.test.mjs:/tmp/live-coordination.test.mjs:ro" plane-live-pages-api:test --test /tmp/live-coordination.test.mjs
+      - name: Remove disposable test stack
+        if: always()
+        run: docker compose -p plane-pages-api-tests -f deployments/pages-api/compose.test.yml down -v
