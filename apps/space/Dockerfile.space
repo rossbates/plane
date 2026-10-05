@@ -29,7 +29,7 @@ ENV VITE_API_BASE_URL=$VITE_API_BASE_URL VITE_API_BASE_PATH=$VITE_API_BASE_PATH 
     VITE_LIVE_BASE_URL=$VITE_LIVE_BASE_URL VITE_LIVE_BASE_PATH=$VITE_LIVE_BASE_PATH \
     VITE_WEB_BASE_URL=$VITE_WEB_BASE_URL VITE_WEB_BASE_PATH=$VITE_WEB_BASE_PATH \
     VITE_WEBSITE_URL=$VITE_WEBSITE_URL VITE_SUPPORT_EMAIL=$VITE_SUPPORT_EMAIL
-RUN pnpm turbo run build --filter=space && pnpm --filter=space check:types
+RUN pnpm turbo run build --filter=space
 RUN --mount=type=cache,id=pnpm-store,target=/pnpm/store \
     pnpm --filter=space deploy --prod --offline --store-dir=/pnpm/store /runtime/space
 

@@ -20,10 +20,19 @@
 - **Naming**: camelCase for variables/functions, PascalCase for components/types
 - **Error Handling**: Use try-catch with proper error types, log errors appropriately
 - **State Management**: MobX stores in `packages/shared-state`, reactive patterns
-- **Testing**: All features require unit tests, use existing test framework per package
+- **Testing**: Tests are optional, targeted tools for this single-user fork—not mandatory release gates. Use existing frameworks when useful; do not introduce test infrastructure for a small repair.
 - **Components**: Build in `@plane/ui` with Storybook for isolated development
 
-## Backend tests (Docker)
+## Lean self-hosted changes
+
+- Fix the requested problem; do not expand it into release/test infrastructure work without asking.
+- Public pushes run lightweight policy/secret checks only. Build/publish manually with `selfhosted.yml`, selecting just the affected component (`frontend` by default). Shared browser changes can select `browser`; select `all` only for a deliberate full upgrade.
+- Private image pins may have different source revisions. Change only affected anchors; API/workers/migrator share backend. Backend/Live protocol changes must be reviewed/deployed together.
+- Normal loop: edit, build affected component, update its private digest pin, deploy, inspect the affected feature. No application build for docs/Compose-only changes. Back up before schema/storage migrations, not ordinary UI edits.
+- Reuse already published images when suitable. No Playwright, full regression runs, or duplicate type-check pass in ordinary publishing.
+- If diagnosis or a build exceeds a few minutes, report the blocker/current state rather than silently continuing. Separate immediate recovery from optional follow-up work.
+
+## Backend tests (Docker, optional)
 
 The Django/pytest suite for `apps/api` runs in an isolated stack defined by `docker-compose-test.yml` at the repo root.
 

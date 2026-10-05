@@ -21,11 +21,19 @@ Deployment recipes describe how to build/operate the fork. Never introduce paral
 
 Private topology, storage/DB choices, hostnames and endpoint values belong in a private deployment checkout/runtime configuration. Credentials and backups stay outside even that repository. A private Compose-only change usually does not need a new application image.
 
-## Translation packaging and regression checks
+## Lean release flow
+
+This is a single-user fork. Keep checks available, but do not make every change wait for a full product-style release train.
+
+- Pushes run lightweight public/private-boundary, secret-scan, and generic Compose validation only.
+- Publishing is manual from `.github/workflows/selfhosted.yml`; choose one component, `browser` for frontend/admin/space, or `all` only for a deliberate full upgrade.
+- Private deployment pins are independent. Update only the affected image anchors with `plane-deployment/select-release.py --components ...`; leave other working components alone.
+- Ordinary UI fixes do not require Playwright, full backend tests, or rebuilding backend/Live/proxy. Build the affected image, deploy, and inspect the affected screen.
+- Backend schema/storage changes are different: back up first, review migrations, and test more deliberately.
+
+## Translation packaging notes
 
 `@plane/i18n` ships its module tree and authoritative locale JSON together under `dist/`. Keep the dynamic import in `dist/core/instance.js` relative to `dist/locales/`; JSON import attributes also support native Node/SSR loading. Vite normally excludes `node_modules` from dynamic-import expansion, so all three browser applications explicitly allow the pnpm-injected `@plane/i18n` package while continuing to exclude other dependencies.
-
-The package build runs unmocked distribution tests for every namespace in every supported language. CI also launches the actual frontend runtime image and checks English/French sign-in labels, email inputs, and buttons with Playwright; only unauthenticated API state is mocked. Browser checks must pass before any release images publish. HTTP health checks and UI unit tests that mock the translator do not validate localization. The browser test deliberately scopes failures to translations, not unrelated upstream SPA-shell hydration warnings.
 
 ## Upgrade checklist
 
@@ -34,7 +42,7 @@ The package build runs unmocked distribution tests for every namespace in every 
 3. Review Hocuspocus channel names, extension ordering, Redis subscription lifetime and lock coordination. Do not rely on tests alone if the collaboration protocol changes.
 4. Review instance config schema and all affected UI components; preference hiding must never weaken permissions/entitlements.
 5. Update pinned Node/Python/nginx/Caddy images and JS/Python dependencies together as appropriate. Python constraints must not mask updated direct requirements; a conflict should fail the build rather than silently selecting another version.
-6. Run native tests, source builds, public/private policy, and redacted secret scanning. Ensure every application image publishes successfully with the same source SHA. Review SBOMs/security alerts; pinning is not a claim that dependencies have no vulnerabilities.
+6. Run native tests/source builds where useful, plus public/private policy and redacted secret scanning. Publish only the components that changed unless this is a deliberate full-platform upgrade. Review SBOMs/security alerts; pinning is not a claim that dependencies have no vulnerabilities.
 7. Rehearse against disposable databases/object storage. Check migrations, existing attachments, uploads, collaborative edits and worker tasks.
 8. Back up production DB, objects, private Compose and Environment. Choose the immutable release deliberately; preserve volumes/secrets/project names. Roll out through Dokploy and verify.
 9. Record release/rollback details privately. Do not downgrade across irreversible migrations without restoring the corresponding data backup.

@@ -52,11 +52,11 @@ The test Compose uses disposable Postgres/Redis with dummy credentials, no host 
 
 ## CI and registry releases
 
-`.github/workflows/selfhosted.yml` validates the public/private boundary, scans fork history with redacted Gitleaks output, validates the generic Compose with dummy values, builds/tests backend and frontend/Live from source, and then publishes all six application images. Pull requests cannot publish; only successful runs on `selfhost-v1.4.2` can use the job-scoped `packages:write` workflow token. Actions are commit-pinned. Dependency-update PRs are reviewed and tested; they never deploy automatically.
+`.github/workflows/selfhosted.yml` runs lightweight policy checks on push: public/private boundary, redacted Gitleaks scan, and generic Compose validation with dummy values. Image publishing is manual. Dispatch the workflow and choose one component, `browser` for frontend/admin/space, or `all` only for a deliberate full-platform upgrade. Pull requests cannot publish; only manual runs on `selfhost-v1.4.2` can use the job-scoped `packages:write` workflow token. Actions are commit-pinned. Dependency-update PRs are reviewed; they never deploy automatically.
 
-Images: `ghcr.io/<repository-owner>/plane-{backend,live,frontend,admin,space,proxy}`. Each gets `sha-<full commit SHA>` and a rolling branch tag, source/revision labels, provenance, and an SBOM. Wait for the **whole workflow** to succeed, not just one publisher. New packages may require Public visibility for anonymous pulls; otherwise configure a narrowly scoped `read:packages` credential privately in Dokploy. Do not reuse the workflow publishing token on a host.
+Images: `ghcr.io/<repository-owner>/plane-{backend,live,frontend,admin,space,proxy}`. Published images get `sha-<full commit SHA>` and a rolling branch tag, source/revision labels, provenance, and an SBOM. New packages may require Public visibility for anonymous pulls; otherwise configure a narrowly scoped `read:packages` credential privately in Dokploy. Do not reuse the workflow publishing token on a host.
 
-Production must explicitly select one immutable `PLANE_IMAGE_TAG` for every application component. The example requires both that tag and `PLANE_IMAGE_OWNER`; it never silently falls back to a rolling image. CI publishes images but has **no deployment webhook or production secret access**.
+Production should explicitly pin each application component by immutable tag+digest in private Compose. Components may intentionally run different source revisions; update only the anchors affected by a change. CI publishes images but has **no deployment webhook or production secret access**.
 
 ## Private deployment boundary
 
@@ -71,7 +71,7 @@ docker compose --env-file /path/to/protected/deployment.env \
 
 The public example is not an instruction to overwrite an existing live Compose. Preserve project names, volume names, unique DNS aliases and existing domain/TLS configuration. Back up Postgres, objects, Compose and Environment before changes. Select the release tag, sync private Compose/Environment to Dokploy, redeploy, and verify API/UI, uploads, editing, background workers, and logs. Browser caches retaining the old patched bundles may need a one-time refresh/service-worker unregister during the source-build transition.
 
-Rollback by restoring the previous private Compose and immutable application tag. Do not remove volumes. Future schema changes can make image-only downgrade unsafe: review migration/backup requirements before upgrading.
+Rollback by restoring the previous private Compose image pins. Do not remove volumes. Future schema changes can make image-only downgrade unsafe: review migration/backup requirements before upgrading.
 
 RustFS and managed Postgres are **future private infrastructure migrations**, not core forks. Changing them requires migrating/verifying objects or database data, reviewing S3 signed URLs and proxy routes or Postgres TLS/dependencies, and retaining the original volumes and rollback path until cutover is verified.
 

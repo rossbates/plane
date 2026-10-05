@@ -1,14 +1,19 @@
 name: Self-hosted platform
 on:
   workflow_dispatch:
+    inputs:
+      component:
+        description: Component to build and publish (browser = frontend, admin, space)
+        type: choice
+        default: frontend
+        options: [frontend, backend, live, admin, space, proxy, browser, all]
   push:
     paths:
       - 'apps/**'
       - 'packages/**'
       - 'deployments/selfhosted/**'
       - 'docs/selfhosted/**'
-      - '.github/workflows/selfhosted.yml'
-      - '.github/dependabot.yml'
+      - '.github/**'
       - '.gitleaks.toml'
       - '.dockerignore'
       - '.gitignore'
@@ -33,7 +38,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: selfhosted-${{ github.ref }}
+  group: selfhosted-${{ github.ref }}-${{ inputs.component || 'policy' }}
   cancel-in-progress: false
 jobs:
   policy:
@@ -65,104 +70,39 @@ jobs:
           PLANE_IMAGE_TAG: sha-${{ github.sha }}
         run: docker compose -f deployments/selfhosted/compose.example.yml config --quiet
 
-  api:
+  select:
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/selfhost-v1.4.2'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.components.outputs.matrix }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: apps/api
-          file: apps/api/Dockerfile.api
-          target: tests
-          load: true
-          tags: plane-selfhosted-backend:test
-          cache-from: type=gha,scope=source-backend
-          cache-to: type=gha,mode=max,scope=source-backend
-      - name: Contract tests against source-built backend (isolated Postgres/Redis)
-        run: docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml up --no-build --abort-on-container-exit --exit-code-from tests
-      - name: Lint and format fork Python changes
+      - id: components
+        env:
+          COMPONENT: ${{ inputs.component }}
         run: |
-          files='plane/api/serializers/page.py plane/api/views/page.py plane/api/urls/page.py plane/utils/page_document_lock.py plane/tests/contract/api/test_pages.py plane/tests/contract/api/test_instance_ui.py plane/license/api/views/instance.py'
-          docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml run --rm --no-deps tests ruff check $files
-          docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml run --rm --no-deps tests ruff format --check $files
-      - name: Remove only disposable test resources
-        if: always()
-        run: docker compose -p plane-selfhosted-tests -f deployments/selfhosted/compose.test.yml down -v
-
-  javascript:
-    name: Test source-built ${{ matrix.component }}
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - component: frontend
-            dockerfile: apps/web/Dockerfile.web
-          - component: live
-            dockerfile: apps/live/Dockerfile.live
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: ${{ matrix.dockerfile }}
-          target: checks
-          load: true
-          tags: plane-${{ matrix.component }}:checks
-          cache-from: type=gha,scope=source-${{ matrix.component }}
-          cache-to: type=gha,mode=max,scope=source-${{ matrix.component }}
-      - name: Run source unit tests
-        run: docker run --rm plane-${{ matrix.component }}:checks
-      - name: Check changed TypeScript formatting and lint
-        run: |
-          if [ '${{ matrix.component }}' = live ]; then
-            files='apps/live/src/extensions/redis.ts apps/live/tests/extensions/redis.test.ts'
-          else
-            files='apps/web/core/components/workspace/edition-badge.tsx apps/web/app/(all)/[workspaceSlug]/(projects)/star-us-link.tsx apps/web/core/components/settings/workspace/sidebar/item-categories.tsx apps/web/tests/promotional-ui.test.tsx apps/web/vitest.config.ts packages/types/src/instance/base.ts packages/i18n/tsdown.config.ts packages/i18n/src/core/instance.ts packages/i18n/tests/distribution.test.mjs apps/web/vite.config.ts apps/admin/vite.config.ts apps/space/vite.config.ts apps/web/playwright.config.ts apps/web/tests/browser/translations.spec.ts'
-          fi
-          docker run --rm plane-${{ matrix.component }}:checks pnpm exec oxfmt --check $files
-          docker run --rm plane-${{ matrix.component }}:checks pnpm exec oxlint --deny-warnings $files
-
-  browser:
-    name: Verify actual browser translations
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '22.22.0'
-      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
-      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: apps/web/Dockerfile.web
-          target: runtime
-          load: true
-          tags: plane-frontend:browser
-          cache-from: type=gha,scope=source-frontend
-          cache-to: type=gha,mode=max,scope=source-frontend
-      - name: Start disposable source-built frontend
-        run: docker run -d --name plane-browser-frontend -p 127.0.0.1:18099:3000 plane-frontend:browser
-      - name: Install frozen browser test dependencies
-        run: |
-          corepack enable
-          pnpm install --frozen-lockfile
-          pnpm --filter web exec playwright install --with-deps chromium
-      - name: Verify real labels in English and French (no translation mocks)
-        run: pnpm --filter web test:browser
-      - name: Remove disposable frontend
-        if: always()
-        run: docker rm -f plane-browser-frontend
+          python3 - <<'PY'
+          import json, os
+          recipes = {
+              'backend': ('apps/api', 'apps/api/Dockerfile.api'),
+              'live': ('.', 'apps/live/Dockerfile.live'),
+              'frontend': ('.', 'apps/web/Dockerfile.web'),
+              'admin': ('.', 'apps/admin/Dockerfile.admin'),
+              'space': ('.', 'apps/space/Dockerfile.space'),
+              'proxy': ('apps/proxy', 'apps/proxy/Dockerfile.ce'),
+          }
+          requested = os.environ['COMPONENT']
+          selected = list(recipes) if requested == 'all' else (
+              ['frontend', 'admin', 'space'] if requested == 'browser' else [requested]
+          )
+          matrix = {'include': [dict(component=c, context=recipes[c][0], dockerfile=recipes[c][1]) for c in selected]}
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write('matrix=' + json.dumps(matrix) + '\n')
+          PY
 
   publish:
     name: Publish ${{ matrix.component }}
-    needs: [policy, api, javascript, browser]
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/selfhost-v1.4.2'
+    needs: [policy, select]
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/selfhost-v1.4.2'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     permissions:
@@ -170,26 +110,7 @@ jobs:
       packages: write
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - component: backend
-            context: apps/api
-            dockerfile: apps/api/Dockerfile.api
-          - component: live
-            context: .
-            dockerfile: apps/live/Dockerfile.live
-          - component: frontend
-            context: .
-            dockerfile: apps/web/Dockerfile.web
-          - component: admin
-            context: .
-            dockerfile: apps/admin/Dockerfile.admin
-          - component: space
-            context: .
-            dockerfile: apps/space/Dockerfile.space
-          - component: proxy
-            context: apps/proxy
-            dockerfile: apps/proxy/Dockerfile.ce
+      matrix: ${{ fromJSON(needs.select.outputs.matrix) }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
@@ -199,7 +120,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - name: Publish from actual application source
+      - name: Build and publish selected component
         id: build
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:

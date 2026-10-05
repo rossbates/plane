@@ -14,7 +14,7 @@
   },
   "scripts": {
     "dev": "tsdown --watch --no-clean",
-    "build": "pnpm run generate:types && tsdown && pnpm run test:dist",
+    "build": "pnpm run generate:types && tsdown",
     "test:dist": "node --test tests/distribution.test.mjs",
     "generate:types": "tsx scripts/generate-types.ts",
     "sync:check": "tsx scripts/sync-check.ts",
